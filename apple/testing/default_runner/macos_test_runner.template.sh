@@ -55,7 +55,6 @@ if [[ "$TEST_BUNDLE_PATH" == *.xctest ]]; then
 else
   unzip -qq -d "${TEST_TMP_DIR}" "${TEST_BUNDLE_PATH}"
 fi
-readonly test_binary="$TEST_TMP_DIR/${TEST_BUNDLE_NAME}.xctest/Contents/MacOS/$TEST_BUNDLE_NAME"
 
 # In case there is no test host, TEST_HOST_PATH will be empty. TEST_BUNDLE_PATH
 # will always be populated.
@@ -149,15 +148,35 @@ fi
 readonly profdata="$TEST_TMP_DIR/coverage.profdata"
 xcrun llvm-profdata merge "$profraw" --output "$profdata"
 
+lcov_args=(
+  -format lcov
+  -instr-profile "$profdata"
+  -ignore-filename-regex='.*external/.+'
+  -path-equivalence="$ROOT",.
+)
+has_binary=false
+IFS=";"
+arch=$(uname -m)
+for binary in $TEST_BINARIES_FOR_LLVM_COV; do
+  file $binary
+  if [[ "$has_binary" == false ]]; then
+    lcov_args+=("${binary}")
+    has_binary=true
+    if ! file "$binary" | grep -q "$arch"; then
+      arch=x86_64
+    fi
+  else
+    lcov_args+=(-object "${binary}")
+  fi
+
+  lcov_args+=("-arch=$arch")
+done
+
 readonly error_file="$TEST_TMP_DIR/llvm-cov-error.txt"
 llvm_cov_status=0
 xcrun llvm-cov \
   export \
-  -format lcov \
-  -instr-profile "$profdata" \
-  -ignore-filename-regex='.*external/.+' \
-  -path-equivalence="$ROOT",. \
-  "$test_binary" \
+  "${lcov_args[@]}" \
   @"$COVERAGE_MANIFEST" \
   > "$COVERAGE_OUTPUT_FILE" \
   2> "$error_file" \
